@@ -1,0 +1,36 @@
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.7.2/socket.io.min.js"></script>
+</head>
+<body>
+<script src="./testFile.js"></script>
+<p>
+    URL: http://172.25.2.71:8888
+    <br/>
+    Path: /socket.io
+    <br/>
+    namespaces: vibration_data or load_data or temperature_data
+    <br/>
+    triggerable events: changeThrust
+</p>
+<hr/>
+<h3> Click on Heading to trigger 'changeThrust' event on the nameSpace</h3>
+<hr/>
+<input type="text" id="thrust">
+<h4 onclick="changeThrust()">changeThrust</h4>
+<div id="changeThrustValue">
+    0
+</div>
+<hr/>
+<h3> These are listening to the respective events</h3>
+<hr/>
+<h4>event:vibration_data</h4>
+<div id="vibration_data">
+</div>
+<h4>event:load_data</h4>
+<div id="load_data">
+</div>
+<h4>event:temperature_data</h4>
+<div id="temperature_data">
+</div>
+</body>

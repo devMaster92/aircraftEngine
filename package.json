@@ -1,0 +1,21 @@
+{
+  "name": "aircraft-demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./serverSide/streamServer.js",
+  "dependencies": {
+    "aws-iot-device-sdk": "^2.2.1",
+    "aws-sdk": "^2.179.0",
+    "express": "latest",
+    "socket.io": "latest"
+  },
+  "devDependencies": {
+    "nodemon": "^1.18.6"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "ISC"
+}

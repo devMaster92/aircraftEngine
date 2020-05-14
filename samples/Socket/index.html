@@ -1,0 +1,40 @@
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.7.2/socket.io.min.js"></script>
+</head>
+<body>
+<script src="./main.js"></script>
+<p>
+    URL: http://172.25.1.198:8888
+    <br/>
+    Path: /socket.io
+    <br/>
+    namespaces: linechart_data (or) streamgraph_data (or) heatmap_data
+    <br/>
+    triggerable events: fetch
+</p>
+<hr/>
+<h3> Click on Heading to trigger 'fetch' event on the nameSpace</h3>
+<hr/>
+<h4 onclick="fetchHeatData()">heatmap_data</h4>
+<div id="heatmap">
+</div>
+<h4 onclick="fetchLineData()">linechart_data</h4>
+<div id="linechart">
+</div>
+<h4 onclick="fetchStreamData()">streamgraph_data</h4>
+<div id="streamgraph">
+</div>
+<hr/>
+<h3> These are listening to the respective events</h3>
+<hr/>
+<h4>event:heatData</h4>
+<div id="heatData">
+</div>
+<h4>event:lineData</h4>
+<div id="lineData">
+</div>
+<h4>event:streamData</h4>
+<div id="streamData">
+</div>
+</body>

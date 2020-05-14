@@ -1,0 +1,17 @@
+{
+    "timeout":3000,
+    "streamData":{
+        "length":10,
+        "keys":["AR","DJ","MS"],
+        "valueLimits":[1,10]
+    },
+    "lineData":{
+        "length":10,
+        "valueLimits":[0,2]
+    },
+    "heatData":{
+        "length":10,
+        "cat":[1,2,3,4],
+        "valueLimits":[0,1]
+    }
+}

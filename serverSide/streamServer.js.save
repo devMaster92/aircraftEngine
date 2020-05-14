@@ -1,0 +1,249 @@
+/**
+ * Created by yashu on 10/1/18.
+ */
+const app = require('express')();
+const fs = require('fs');
+const httpsOpts = {
+    key: fs.readFileSync('./../keys/server.key', 'utf8'),
+    cert: fs.readFileSync('./../keys/server.crt', 'utf8')
+};
+const https = require('https');
+// Load the SDK for JavaScript
+const AWS = require('aws-sdk');
+const awsIot = require('aws-iot-device-sdk');
+
+// Set the region
+AWS.config.update({ region: 'ap-southeast-1' });
+// Create an SQS service object
+const sqsVibration = new AWS.SQS({ apiVersion: '2012-11-05' });
+const sqsLoad = new AWS.SQS({ apiVersion: '2012-11-05' });
+const sqsTemp = new AWS.SQS({ apiVersion: '2012-11-05' });
+const clientID = "thrustToggler_" + guid();
+const shadowOptions = {
+    keyPath: "./certs/aircraftEngine.private.key",
+    certPath: "./certs/aircraftEngine.cert.pem",
+    caPath: "./certs/root-CA.crt",
+    clientId: clientID,
+    host: "aqog91rucuuv3.iot.ap-southeast-1.amazonaws.com",
+    region: "ap-southeast-1",
+    protocol: "wss"
+};
+const thingShadows = awsIot.thingShadow(shadowOptions);
+
+let clientTokenGet;
+let clientTokenUpdate;
+
+app.use(require('express').static('./UI_code/'));
+
+
+const server = https.createServer(httpsOpts, app).listen(8888);
+const io = require('socket.io')(server);
+const socketServer = io.of('/aircraft_demo');
+
+console.log("Started server");
+
+const timeOutVal = 10;
+let thrustValue = 0;
+const sensorDetails = {
+    vibrationSensor: {
+        queueURL: "https://sqs.ap-southeast-1.amazonaws.com/131195301981/digitalTwin_vibrationData_forUI",
+        eventName: "vibration_data",
+        fetching: false,
+        capture: true,
+        sqsOb: sqsVibration
+    },
+    loadSensor: {
+        queueURL: "https://sqs.ap-southeast-1.amazonaws.com/131195301981/digitalTwin_loadData_forUI",
+        eventName: "load_data",
+        fetching: false,
+        capture: true,
+        sqsOb: sqsLoad
+    },
+    temperatureSensor: {
+        queueURL: "https://sqs.ap-southeast-1.amazonaws.com/131195301981/digitalTwin_temperatureData_forUI",
+        eventName: "temperature_data",
+        fetching: false,
+        capture: true,
+        sqsOb: sqsTemp
+    },
+};
+let pendingThrustValues = [];
+let canUpdateThrust = true;
+let needToUpdateThrust = false;
+
+socketServer.on('connect', socket => {
+    console.log("One client on aircraftDemo");
+    socketServer.emit('changeThrustValue', '' + thrustValue);
+    socket.on('changeThrust', newValue => {
+        // console.log("changeThrust: " + newValue);
+        pendingThrustValues.push(newValue);
+        updateThrustValue();
+    });
+});
+
+thingShadows.on('connect', function() {
+    console.log("Connected thing shadows API");
+    thingShadows.register('aircraftEngine', { debug: false }, function() {
+        clientTokenGet = thingShadows.get("aircraftEngine");
+        console.log("Getting state with token: " + clientTokenGet);
+    });
+});
+
+thingShadows.on('status', function(thingName, stat, clientToken, stateObject) {
+    console.log('received ' + stat + ' on ' + thingName + ': ' + JSON.stringify(stateObject));
+    if (clientToken == clientTokenGet) {
+        console.log("Got thrust value to be: " + stateObject.state.desired.thrustValue);
+        thrustValue = parseInt(stateObject.state.desired.thrustValue);
+        socketServer.emit('changeThrustValue', '' + thrustValue);
+    } else if (clientToken == clientTokenUpdate) {
+        thrustValue = parseInt(stateObject.state.desired.thrustValue);
+        socketServer.emit('changeThrustValue', '' + thrustValue);
+        // console.log("Done updating thing Shadow to thrust value: " + thrustValue);
+    } else {
+        console.log("unknown thrust update, check who is updating: " + clientToken);
+    }
+    canUpdateThrust = true;
+    if (needToUpdateThrust) {
+        updateThrustValue();
+    }
+    pendingThrustValues = [];
+});
+
+thingShadows.on('timeout', function(thingName, clientToken) {
+    console.log('received timeout on ' + thingName + ' with token: ' + clientToken);
+});
+
+function guid() {
+    function s4() {
+        return Math.floor((1 + Math.random()) * 0x10000)
+            .toString(16)
+            .substring(1);
+    }
+    return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+        s4() + '-' + s4() + s4() + s4();
+}
+
+function getDataAndSendToUI() {
+    if (thrustValue != 0) {
+        for (let i = 0; i < Object.keys(sensorDetails).length; i++) {
+            if (sensorDetails[Object.keys(sensorDetails)[i]].capture && !sensorDetails[Object.keys(sensorDetails)[i]].fetching) {
+                const eventName = sensorDetails[Object.keys(sensorDetails)[i]].eventName;
+                const queueURL = sensorDetails[Object.keys(sensorDetails)[i]].queueURL;
+                const sqsOb = sensorDetails[Object.keys(sensorDetails)[i]].sqsOb;
+                getDataFromSQSQueue(sqsOb, Object.keys(sensorDetails)[i], eventName, queueURL);
+            }
+        }
+    }
+    setTimeout(getDataAndSendToUI, timeOutVal);
+    // getDataAndSendToUI();
+}
+
+getDataAndSendToUI();
+
+function emitDataToUI(sensorName, eventName, data) {
+    sensorDetails[sensorName].fetching = false;
+    socketServer.emit(eventName, data);
+    storeValuesInObject(sensorName, data);
+    // console.log("Sent data on: " + eventName + " data: " + JSON.stringify(data));
+}
+
+function getDataFromSQSQueue(sqsOb, sensorName, eventName, queueURL) {
+    sensorDetails[sensorName].fetching = true;
+    if (queueURL.trim().length != 0) {
+        const params = {
+            AttributeNames: [
+                "All"
+            ],
+            MaxNumberOfMessages: 10,
+            MessageAttributeNames: [
+                "All"
+            ],
+            QueueUrl: queueURL,
+            VisibilityTimeout: 300,
+            WaitTimeSeconds: 20
+        };
+        const deleteParams = {
+            Entries: [],
+            QueueUrl: queueURL
+        };
+        // console.log("receiving from Queue: " + queueURL);
+        sqsOb.receiveMessage(params, function(err, data) {
+            if (err) {
+                console.log("Receive Error", err);
+            } else if (data.Messages) {
+                const msgsObject = [];
+                const entries = [];
+                for (let i = 0; i < data.Messages.length; i++) {
+                    entries.push({
+                        Id: 'deleteMsgID_' + i,
+                        ReceiptHandle: data.Messages[i].ReceiptHandle
+                    });
+                    msgsObject.push({
+                        timestamp: (new Date(JSON.parse(data.Messages[i].Body).Timestamp)).valueOf(),
+                        value: JSON.parse(data.Messages[i].Body).Message
+                    });
+                    // console.log(((new Date()).valueOf() - (new Date(parseInt(data.Messages[i].Attributes.SentTimestamp)))) / 1000);
+                }
+                emitDataToUI(sensorName, eventName, msgsObject);
+                deleteParams.Entries = entries;
+                sqsOb.deleteMessageBatch(deleteParams, function(err, data) {
+                    if (err) {
+                        console.log("Delete Error", err);
+                    } else {
+                        // console.log("Message Deleted");
+                    }
+                });
+            } else {
+                emitDataToUI(sensorName, eventName, []);
+            }
+        });
+    } else {
+        emitDataToUI(sensorName, eventName, []);
+    }
+}
+
+function updateThrustValue() {
+    // console.log("In update thrust: " + canUpdateThrust);
+    if (canUpdateThrust == true) {
+        needToUpdateThrust = false;
+        const newState = { "state": { "desired": { "thrustValue": pendingThrustValues[pendingThrustValues.length - 1] } } };
+        clientTokenUpdate = thingShadows.update('aircraftEngine', newState);
+        if (clientTokenUpdate === null) {
+            console.log('update shadow failed, operation still in progress');
+        } else {
+            canUpdateThrust = false;
+        }
+    } else {
+        console.log("Cannot update right now.");
+        needToUpdateThrust = true;
+    }
+}
+
+//TODO: Remove this after testing
+const allSensorData = {};
+
+function storeValuesInObject(sensorName, data) {
+    if (!allSensorData.hasOwnProperty(sensorName)) {
+        allSensorData[sensorName] = {};
+        allSensorData[sensorName].collecting = true;
+        allSensorData[sensorName].values = [];
+    }
+    if (allSensorData[sensorName].collecting === true) {
+        allSensorData[sensorName].values = allSensorData[sensorName].values.concat(data);
+        console.log("Sensor: " + sensorName + " data: " + allSensorData[sensorName].values.length);
+        if (allSensorData[sensorName].values.length >= 100) {
+            allSensorData[sensorName].collecting = false;
+            writeDataToFile(sensorName, JSON.stringify(allSensorData[sensorName].values));
+        }
+    }
+}
+
+function writeDataToFile(fileName, data) {
+    fs.writeFile(fileName + '.json', data, (err) => {
+        // throws an error, you could also catch it here
+        if (err) throw err;
+
+        // success case, the file was saved
+        console.log('File saved ' + fileName + ' !');
+    });
+}
